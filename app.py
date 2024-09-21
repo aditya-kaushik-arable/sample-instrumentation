@@ -9,6 +9,57 @@ import pytz
 from sqlalchemy.exc import OperationalError
 
 app = Flask(__name__)
+
+
+# Elastic APM
+from elasticapm.contrib.flask import ElasticAPM
+
+# Jaeger
+from jaeger_client import Config
+from flask_opentracing import FlaskTracing
+
+# OpenTelemetry for SigNoz
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
+app = Flask(__name__)
+
+# Elastic APM configuration
+app.config['ELASTIC_APM'] = {
+    'SERVICE_NAME': 'my-web-app',
+    'SECRET_TOKEN': 'your-secret-token',
+    'SERVER_URL': 'http://apm-server:8200',
+}
+
+# Elastic APM setup
+apm = ElasticAPM(app)
+
+
+# Jaeger Tracing Configuration
+def init_jaeger_tracer(service_name):
+    config = Config(
+        config={
+            'sampler': {'type': 'const', 'param': 1},
+            'local_agent': {'reporting_host': 'jaeger'},
+            'logging': True,
+        },
+        service_name=service_name,
+        validate=True,
+    )
+    return config.initialize_tracer()
+
+
+# Initialize Jaeger tracer
+jaeger_tracer = init_jaeger_tracer('my-web-app')
+tracing = FlaskTracing(jaeger_tracer, True, app)
+
+# OpenTelemetry for SigNoz
+trace.set_tracer_provider(TracerProvider())
+signoz_span_processor = BatchSpanProcessor(OTLPSpanExporter(endpoint="http://signoz-otel-collector:4317"))
+trace.get_tracer_provider().add_span_processor(signoz_span_processor)
+
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
